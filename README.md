@@ -1,6 +1,6 @@
-# MindBridge AI
+# MindBridge 
 
-MindBridge AI is a full-stack mental wellness platform that connects patients
+MindBridge  is a full-stack mental wellness platform that connects patients
 with licensed therapists for secure chat and video consultations, backed by an
 intelligent assessment engine and real‑time notifications.
 
