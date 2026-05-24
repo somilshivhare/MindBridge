@@ -1,4 +1,4 @@
-name: CI/CD Pipeline (Docker Hub + SSH deploy)
+name: CI/CD Pipeline (Docker Hub + SSH Deploy)
 
 on:
   push:
@@ -9,14 +9,16 @@ env:
   NODE_VERSION: 18
 
 jobs:
-  # =========================
+
+  # ==========================================
   # BUILD & PUSH DOCKER IMAGES
-  # =========================
+  # ==========================================
   build:
-    name: Install & Build Images
+    name: Build and Push Docker Images
     runs-on: ubuntu-latest
 
     steps:
+
       # Checkout repository
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -27,7 +29,7 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      # Cache backend node_modules
+      # Cache backend dependencies
       - name: Cache backend node modules
         uses: actions/cache@v4
         with:
@@ -41,7 +43,7 @@ jobs:
         working-directory: server
         run: npm ci
 
-      # Cache frontend node_modules
+      # Cache frontend dependencies
       - name: Cache frontend node modules
         uses: actions/cache@v4
         with:
@@ -67,65 +69,72 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      # Build & Push Backend Image
+      # ==========================================
+      # BUILD & PUSH BACKEND IMAGE
+      # ==========================================
       - name: Build and push backend image
         working-directory: server
         env:
-          DOCKERHUB_REPO: ${{ secrets.DOCKER_USERNAME }}/mindbridge-backend
+          DOCKER_REPO: ${{ secrets.DOCKER_USERNAME }}/mindbridge-backend
           IMAGE_TAG: ${{ github.sha }}
+
         run: |
           SHORT_SHA=${IMAGE_TAG::8}
 
-          docker build -t $DOCKERHUB_REPO:$SHORT_SHA .
-          docker tag $DOCKERHUB_REPO:$SHORT_SHA $DOCKERHUB_REPO:latest
+          docker build -t $DOCKER_REPO:$SHORT_SHA .
+          docker tag $DOCKER_REPO:$SHORT_SHA $DOCKER_REPO:latest
 
-          docker push $DOCKERHUB_REPO:$SHORT_SHA
-          docker push $DOCKERHUB_REPO:latest
+          docker push $DOCKER_REPO:$SHORT_SHA
+          docker push $DOCKER_REPO:latest
 
-      # Build & Push Frontend Image
+      # ==========================================
+      # BUILD & PUSH FRONTEND IMAGE
+      # ==========================================
       - name: Build and push frontend image
         working-directory: client
         env:
-          DOCKERHUB_REPO: ${{ secrets.DOCKERHUB_USERNAME }}/mindbridge-frontend
+          DOCKER_REPO: ${{ secrets.DOCKER_USERNAME }}/mindbridge-frontend
           IMAGE_TAG: ${{ github.sha }}
+
         run: |
           SHORT_SHA=${IMAGE_TAG::8}
 
-          docker build -t $DOCKERHUB_REPO:$SHORT_SHA .
-          docker tag $DOCKERHUB_REPO:$SHORT_SHA $DOCKERHUB_REPO:latest
+          docker build -t $DOCKER_REPO:$SHORT_SHA .
+          docker tag $DOCKER_REPO:$SHORT_SHA $DOCKER_REPO:latest
 
-          docker push $DOCKERHUB_REPO:$SHORT_SHA
-          docker push $DOCKERHUB_REPO:latest
+          docker push $DOCKER_REPO:$SHORT_SHA
+          docker push $DOCKER_REPO:latest
 
-  # =========================
+  # ==========================================
   # DEPLOY TO EC2
-  # =========================
+  # ==========================================
   deploy:
-    name: Deploy to EC2 via SSH
+    name: Deploy to EC2
     needs: build
     runs-on: ubuntu-latest
 
     steps:
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Deploy to EC2 via SSH
         uses: appleboy/ssh-action@v1.0.3
+
         with:
           host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
+          username: ubuntu
           key: ${{ secrets.EC2_SSH_KEY }}
-          port: ${{ secrets.EC2_SSH_PORT }}
+          port: 22
           timeout: 20m
 
           script: |
-            set -euo pipefail
+            set -e
 
-            # Project directory on EC2
-            DEPLOY_DIR=~/wellness
+            # Create project directory
+            mkdir -p ~/wellness
 
-            mkdir -p "$DEPLOY_DIR"
-            cd "$DEPLOY_DIR"
+            cd ~/wellness
 
             # Create .env file
             cat > .env <<EOF
@@ -133,17 +142,25 @@ jobs:
             JWT_SECRET=${{ secrets.JWT_SECRET }}
             EMAIL_USER=${{ secrets.EMAIL_USER }}
             EMAIL_PASS=${{ secrets.EMAIL_PASS }}
+            GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
             NODE_ENV=production
             EOF
+
+            # Pull latest code (optional)
+            if [ ! -d ".git" ]; then
+              git clone https://github.com/${{ github.repository }} .
+            else
+              git pull origin main
+            fi
 
             # Stop existing containers
             docker compose down || true
 
-            # Pull latest images from Docker Hub
-            docker compose pull || true
+            # Pull latest Docker images
+            docker compose pull
 
             # Start containers
             docker compose up -d --remove-orphans
 
-            # Remove unused images
-            docker image prune -f || true
+            # Cleanup unused images
+            docker image prune -f
