@@ -17,6 +17,7 @@ services:
     ports:
       - "5000:5000"
     environment:
+      - MONGO_URI=mongodb://mongodb:27017/ai_wellness
       - MONGODB_URI=mongodb://mongodb:27017/ai_wellness
       - NODE_ENV=production
     env_file:
@@ -35,6 +36,8 @@ services:
       - "80:80"     # production web port
     depends_on:
       - backend
+    environment:
+      - VITE_API_BASE_URL=http://backend:5000/api
     restart: unless-stopped
 
 volumes:

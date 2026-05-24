@@ -79,6 +79,11 @@ const startServer = async () => {
   app.use('/api/contact', contactRoutes);
   app.use('/api/chat', chatRoutes);
   app.use('/api/patients', patientRoutes);
+
+  // Health check endpoint for quick liveness checks from local/dev workflows
+  app.get('/health', (req, res) => {
+    res.json({ ok: true, uptime: process.uptime() });
+  });
 };
 
 
