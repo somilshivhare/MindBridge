@@ -1,0 +1,123 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+
+env:
+  NODE_VERSION: 18
+
+jobs:
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install Backend Dependencies
+        working-directory: server
+        run: npm install
+
+      - name: Install Frontend Dependencies
+        working-directory: client
+        run: npm install
+
+  build-and-push:
+    name: Build, tag and push Docker images to ECR
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Create Backend .env
+        run: |
+          echo "MONGO_URI=${{ secrets.MONGO_URI }}" >> server/.env
+          echo "JWT_SECRET=${{ secrets.JWT_SECRET }}" >> server/.env
+          echo "EMAIL_USER=${{ secrets.EMAIL_USER }}" >> server/.env
+          echo "EMAIL_PASS=${{ secrets.EMAIL_PASS }}" >> server/.env
+          echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" >> server/.env
+          echo "NODE_ENV=${{ secrets.NODE_ENV }}" >> server/.env
+
+      - name: Build and push backend image to ECR
+        env:
+          ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
+          ECR_REPO: ${{ secrets.ECR_REPOSITORY_BACKEND }}
+          IMAGE_TAG: latest
+        run: |
+          docker build -t $ECR_REPO:$IMAGE_TAG ./server
+          docker tag $ECR_REPO:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPO:$IMAGE_TAG
+          aws ecr describe-repositories --repository-names $ECR_REPO || aws ecr create-repository --repository-name $ECR_REPO
+          docker push $ECR_REGISTRY/$ECR_REPO:$IMAGE_TAG
+
+      - name: Build and push frontend image to ECR
+        env:
+          ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
+          ECR_REPO: ${{ secrets.ECR_REPOSITORY_FRONTEND }}
+          IMAGE_TAG: latest
+        run: |
+          docker build -t $ECR_REPO:$IMAGE_TAG ./client
+          docker tag $ECR_REPO:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPO:$IMAGE_TAG
+          aws ecr describe-repositories --repository-names $ECR_REPO || aws ecr create-repository --repository-name $ECR_REPO
+          docker push $ECR_REGISTRY/$ECR_REPO:$IMAGE_TAG
+
+  deploy-to-ec2:
+    name: Deploy to EC2 (SSH)
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Deploy to EC2 via SSH
+        uses: appleboy/ssh-action@v1.7.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: ${{ secrets.EC2_SSH_PORT }}
+          script: |
+            set -e
+
+            AWS_REGION="${{ secrets.AWS_REGION }}"
+            AWS_ACCOUNT_ID="${{ secrets.AWS_ACCOUNT_ID }}"
+            ECR_BACKEND="${{ secrets.ECR_REPOSITORY_BACKEND }}"
+            ECR_FRONTEND="${{ secrets.ECR_REPOSITORY_FRONTEND }}"
+
+            cd ~/wellness || mkdir -p ~/wellness && cd ~/wellness
+
+            # Stop current compose (ignore failures)
+            docker compose down || true
+
+            # Login to ECR on the EC2 host (requires awscli configured or available)
+            if command -v aws >/dev/null 2>&1; then
+              aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com" || true
+            fi
+
+            # Pull latest images from ECR
+            docker pull "$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_BACKEND:latest" || true
+            docker pull "$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_FRONTEND:latest" || true
+
+            # Bring up containers
+            docker compose up -d --remove-orphans
+

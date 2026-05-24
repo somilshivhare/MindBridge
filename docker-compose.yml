@@ -1,0 +1,49 @@
+version: '3.9'
+
+services:
+  mongodb:
+    image: mongo:6
+    container_name: Mindbridge_mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: Mindbridge_backend
+    ports:
+      - "5000:5000"
+    environment:
+      - MONGODB_URI=mongodb://mongodb:27017/ai_wellness
+      - NODE_ENV=production
+    env_file:
+      - ./server/.env
+    depends_on:
+      - mongodb
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    container_name: Mindbridge_frontend
+    ports:
+      - "5173:5173" # Vite dev port
+      - "80:80"     # production web port
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  mongodb_data:
+
+# Notes:
+# - Set the environment variable `IMAGE_PREFIX` when pulling images on a remote host
+#   to match the Docker registry prefix you use (CI uses Docker Hub by default).
+# - `env_file` entries load secrets from `./server/.env` and `./client/.env` for local runs.
+
+    
