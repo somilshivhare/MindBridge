@@ -132,7 +132,7 @@ jobs:
     steps:
 
       # =========================================================
-      # SSH INTO EC2 & DEPLOY
+      # DEPLOY USING SSH
       # =========================================================
       - name: Deploy to EC2 via SSH
         uses: appleboy/ssh-action@v1.0.3
@@ -190,14 +190,26 @@ jobs:
             docker compose down || true
 
             # =========================================================
-            # PULL LATEST IMAGES
+            # REMOVE OLD CONTAINERS
             # =========================================================
-            docker compose pull
+            docker rm -f Mindbridge_backend || true
+            docker rm -f Mindbridge_frontend || true
+            docker rm -f Mindbridge_mongodb || true
 
             # =========================================================
-            # START CONTAINERS
+            # REMOVE UNUSED NETWORKS
             # =========================================================
-            docker compose up -d --remove-orphans
+            docker network prune -f || true
+
+            # =========================================================
+            # PULL LATEST IMAGES
+            # =========================================================
+            docker compose pull || true
+
+            # =========================================================
+            # BUILD & START CONTAINERS
+            # =========================================================
+            docker compose up -d --build --remove-orphans
 
             # =========================================================
             # CLEANUP UNUSED IMAGES
