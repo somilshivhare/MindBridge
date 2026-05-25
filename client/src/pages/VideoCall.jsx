@@ -81,7 +81,7 @@ export default function VideoCall() {
         };
 
         // Connect to Socket.io with error handling
-        const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
+        const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://13.206.121.55:5000/api';
         const serverUrl = apiBase.replace(/\/api$/, '');
         socketRef.current = io(serverUrl, {
           auth: { token },
