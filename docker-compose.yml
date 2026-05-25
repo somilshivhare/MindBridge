@@ -20,6 +20,8 @@ services:
       - MONGO_URI=mongodb://mongodb:27017/ai_wellness
       - MONGODB_URI=mongodb://mongodb:27017/ai_wellness
       - NODE_ENV=production
+      - FRONTEND_URL=http://13.206.121.55
+      - FRONTEND_URLS=http://localhost:5173,http://127.0.0.1:5173
     env_file:
       - ./server/.env
     depends_on:
@@ -30,14 +32,14 @@ services:
     build:
       context: ./client
       dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: http://13.206.121.55:5000/api
     container_name: Mindbridge_frontend
     ports:
       - "5173:5173" # Vite dev port
       - "80:80"     # production web port
     depends_on:
       - backend
-    environment:
-      - VITE_API_BASE_URL=http://backend:5000/api
     restart: unless-stopped
 
 volumes:
